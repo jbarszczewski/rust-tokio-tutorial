@@ -6,18 +6,21 @@ use tokio::net::{TcpListener, TcpStream};
 
 #[tokio::main]
 async fn main() {
+    // create balance wrapped in Arc and Mutex for cross thread safety
     let balance = Arc::new(Mutex::new(0.00f32));
     let listener = TcpListener::bind("127.0.0.1:8181").await.unwrap();
 
     loop {
         let (stream, _) = listener.accept().await.unwrap();
+        // Clone the balance Arc and pass it to handler
+        let balance = balance.clone();
         tokio::spawn(async move {
-            handle_connection(stream).await;
+            handle_connection(stream, balance).await;
         });
     }
 }
 
-async fn handle_connection(mut stream: TcpStream) {
+async fn handle_connection(mut stream: TcpStream, balance: Arc<Mutex<f32>>) {
     // Read the first 16 characters from the incoming stream.
     let mut buffer = [0; 16];
     stream.read(&mut buffer).await.unwrap();
@@ -28,8 +31,8 @@ async fn handle_connection(mut stream: TcpStream) {
     };
     let contents = match method_type {
         "GET " => {
-            // todo: return real balance
-            format!("{{\"balance\": {}}}", 0.0)
+            // before using balance we need to lock it.
+            format!("{{\"balance\": {}}}", balance.lock().unwrap())
         }
         "POST" => {
             // Take characters after 'POST /' until whitespace is detected.
@@ -39,8 +42,11 @@ async fn handle_connection(mut stream: TcpStream) {
                 .map(|x| *x as char)
                 .collect();
             let balance_update = input.parse::<f32>().unwrap();
-            // todo: add balance update handling
-            format!("{{\"balance\": {}}}", balance_update)
+
+            // acquire lock on our balance and update the value
+            let mut locked_balance: MutexGuard<f32> = balance.lock().unwrap();
+            *locked_balance += balance_update;
+            format!("{{\"balance\": {}}}", locked_balance)
         }
         _ => {
             panic!("Invalid HTTP method!")
