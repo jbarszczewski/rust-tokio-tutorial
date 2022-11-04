@@ -59,5 +59,5 @@ async fn handle_connection(mut stream: TcpStream, balance: Arc<Mutex<f32>>) {
         contents
     );
     stream.write(response.as_bytes()).await.unwrap();
-    stream.flush().await.unwrap();
+    stream.shutdown().await.unwrap();
 }
